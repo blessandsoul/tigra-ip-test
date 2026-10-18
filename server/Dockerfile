@@ -87,7 +87,12 @@ RUN npm run build
 FROM node:22-alpine AS production
 
 # Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init \n    && apk upgrade --no-cache \n    && apk add --upgrade --no-cache \n      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \n      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \n      vips-cpp vips-heif libheif-aom
+RUN apk add --no-cache dumb-init \
+    && apk upgrade --no-cache \
+    && apk add --upgrade --no-cache \
+      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \
+      vips-cpp vips-heif libheif-aom
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
