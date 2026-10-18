@@ -10,7 +10,15 @@
 # ===================================================================
 # Stage 1: Dependencies (cached layer)
 # ===================================================================
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS dependencies
+# TEST-REPO ONLY (not the template): ainow's CPU cannot run sharp's prebuilt addon, so build it
+# from source against system libvips, exactly like pickhome/pickauto do in production.
+FROM node:22-alpine AS sharp-native
+ENV npm_config_jobs=1
+RUN apk upgrade --no-cache && apk add --upgrade --no-cache     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main     --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community     vips-dev vips-heif libheif-aom build-base python3 pkgconf
+WORKDIR /native
+RUN npm install --ignore-scripts --no-audit --no-fund sharp@0.35.5 node-gyp@13.1.0 node-addon-api@8.9.2     && SHARP_FORCE_GLOBAL_LIBVIPS=1 npm explore sharp -- npm run build
+
+FROM node:22-alpine AS dependencies
 
 # Install production dependencies only
 WORKDIR /app
@@ -43,7 +51,7 @@ RUN --mount=type=cache,target=/root/.npm npm install --no-save --no-audit --no-f
 # ===================================================================
 # Stage 2: Build (compile TypeScript)
 # ===================================================================
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS builder
+FROM node:22-alpine AS builder
 
 # Override NODE_ENV to ensure devDependencies are installed.
 # Coolify may inject NODE_ENV=production as a build arg, which causes npm ci
@@ -76,10 +84,10 @@ RUN npm run build
 # ===================================================================
 # Stage 3: Production Runtime
 # ===================================================================
-FROM node:20-alpine@sha256:fb4cd12c85ee03686f6af5362a0b0d56d50c58a04632e6c0fb8363f609372293 AS production
+FROM node:22-alpine AS production
 
 # Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init \n    && apk upgrade --no-cache \n    && apk add --upgrade --no-cache \n      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \n      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/community \n      vips-cpp vips-heif libheif-aom
 
 # Create non-root user for security
 RUN addgroup -g 1001 -S nodejs && \
@@ -96,6 +104,8 @@ ENV NODE_ENV=production
 # Includes the Prisma CLI (+ its engines) installed in stage 1, which the
 # CMD below needs for `npx prisma migrate deploy`.
 COPY --from=dependencies --chown=nodejs:nodejs /app/node_modules ./node_modules
+# TEST-REPO ONLY: the CPU-compatible sharp addon built above.
+COPY --from=sharp-native --chown=nodejs:nodejs /native/node_modules/sharp/src/build/Release/sharp-linuxmusl-x64-0.35.5.node /app/node_modules/sharp/src/build/Release/sharp-linuxmusl-x64-0.35.5.node
 
 # Copy generated Prisma client from builder stage (not present in prod deps)
 COPY --from=builder --chown=nodejs:nodejs /app/node_modules/.prisma ./node_modules/.prisma
